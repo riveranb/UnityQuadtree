@@ -10,21 +10,20 @@ namespace SpacePartition
 		ZY,
     }
 
-	// A Dynamic, Loose Octree for storing any objects that can be described with AABB bounds
-	// See also: PointOctree, where objects are stored as single points and some code can be simplified
-	// Octree:	An octree is a tree data structure which divides 3D space into smaller partitions (nodes)
-	//			and places objects into the appropriate nodes. This allows fast access to objects
-	//			in an area of interest without having to check every object.
-	// Dynamic: The octree grows or shrinks as required when objects as added or removed
-	//			It also splits and merges nodes as appropriate. There is no maximum depth.
-	//			Nodes have a constant - numObjectsAllowed - which sets the amount of items allowed in a node
-	//			before it splits.
-	// Loose:	The octree's nodes can be larger than 1/2 their parent's length and width, so they overlap
-	//			to some extent.
-	//			This can alleviate the problem of even tiny objects ending up in large nodes if they're near
-	//			boundaries.
-	//			A looseness value of 1.0 will make it a "normal" octree.
-	// T:		The content of the octree can be anything, since the bounds data is supplied separately.
+	// A Dynamic, Loose Quadtree for storing any objects that can be described with AABB bounds
+	// Quadtree: An quadtree is a tree data structure which divides 3D space into smaller partitions
+	//		(nodes) and places objects into the appropriate nodes. This allows fast access to objects
+	//		in an area of interest without having to check every object.
+	// Dynamic: The quadtree grows or shrinks as required when objects as added or removed
+	//		It also splits and merges nodes as appropriate. There is no maximum depth.
+	//		Nodes have a constant - numObjectsAllowed - which sets the amount of items allowed in a node
+	//		before it splits.
+	// Loose:	The quadtree's nodes can be larger than 1/2 their parent's length and width, so they overlap
+	//		to some extent.
+	//		This can alleviate the problem of even tiny objects ending up in large nodes if they're near
+	//		boundaries.
+	//		A looseness value of 1.0 will make it a "normal" octree.
+	// T:	The content of the quadtree can be anything, since the bounds data is supplied separately.
 
 	// Originally written for my game Scraps (http://www.scrapsgame.com) but intended to be general-purpose.
 	// Copyright 2014 Nition, BSD licence (see LICENCE file). www.momentstudio.co.nz
@@ -64,6 +63,49 @@ namespace SpacePartition
 		public int Count { get; private set; }
 		#endregion
 
+		public static Vector3 ApplyOffset(Vector3 input, float horizontal, float vertical, 
+			QuadPlane plane)
+        {
+			switch (plane)
+            {
+			case QuadPlane.XZ:
+				input.x += horizontal;
+				input.z += vertical;
+				break;
+			case QuadPlane.ZY:
+				input.z += horizontal;
+				input.y += vertical;
+				break;
+			case QuadPlane.XY:
+			default:
+				input.x += horizontal;
+				input.y += vertical;
+				break;
+            }
+			return input;
+        }
+
+		public static Vector3 Assign(Vector3 input, float horizontal, float vertical, QuadPlane plane)
+        {
+			switch (plane)
+			{
+				case QuadPlane.XZ:
+					input.x = horizontal;
+					input.z = vertical;
+					break;
+				case QuadPlane.ZY:
+					input.z = horizontal;
+					input.y = vertical;
+					break;
+				case QuadPlane.XY:
+				default:
+					input.x = horizontal;
+					input.y = vertical;
+					break;
+			}
+			return input;
+		}
+
 		/// <summary>
 		/// Constructor for the bounds octree.
 		/// </summary>
@@ -91,7 +133,8 @@ namespace SpacePartition
 			initialSize = initialWorldSize;
 			minSize = minNodeSize;
 			looseness = Mathf.Clamp(loosenessVal, 1.0f, 2.0f);
-			rootNode = new BoundsQuadtreeNode<T>(initialSize, minSize, looseness, initialWorldPos, plane);
+			rootNode = new BoundsQuadtreeNode<T>(initialSize, initialSize, minSize, looseness, 
+				initialWorldPos, plane);
 		}
 
 		/// <summary>
@@ -285,7 +328,7 @@ namespace SpacePartition
 		/// </summary>
 		/// <param name="checkBounds">bounds that were passed in to check for collisions.</param>
 #if UNITY_EDITOR
-		void AddCollisionCheck(Bounds checkBounds)
+		private void AddCollisionCheck(Bounds checkBounds)
 		{
 			lastBoundsCollisionChecks.Enqueue(checkBounds);
 			if (lastBoundsCollisionChecks.Count > _NumCollisionsToSave)
@@ -301,7 +344,7 @@ namespace SpacePartition
 		/// </summary>
 		/// <param name="checkRay">ray that was passed in to check for collisions.</param>
 #if UNITY_EDITOR
-		void AddCollisionCheck(Ray checkRay)
+		private void AddCollisionCheck(Ray checkRay)
 		{
 			lastRayCollisionChecks.Enqueue(checkRay);
 			if (lastRayCollisionChecks.Count > _NumCollisionsToSave)
@@ -315,7 +358,7 @@ namespace SpacePartition
 		/// Grow the octree to fit in all objects.
 		/// </summary>
 		/// <param name="direction">Direction to grow.</param>
-		void Grow(Vector3 direction)
+		private void Grow(Vector3 direction)
 		{
 			BoundsQuadtreeNode<T> oldRoot = rootNode;
 			float half = rootNode.BaseLength / 2;
@@ -346,11 +389,13 @@ namespace SpacePartition
 			}
 
 			// Create a new, bigger octree root node
-			rootNode = new BoundsQuadtreeNode<T>(newLength, minSize, looseness, newCenter, plane);
+			rootNode = new BoundsQuadtreeNode<T>(newLength, newLength, minSize, looseness, newCenter, 
+				plane);
 
 			if (oldRoot.HasAnyObjects())
 			{
-				// Create another 3 new octree children to go with the old root as children of the new root
+				// Create another 3 new octree children to go with the old root as children of the
+				// new root
 				int rootPos = rootNode.BestFitChild(oldRoot.Center);
 				BoundsQuadtreeNode<T>[] children = new BoundsQuadtreeNode<T>[4];
 				for (int i = 0; i < 4; i++)
@@ -363,25 +408,10 @@ namespace SpacePartition
 					{
 						horizDir = i % 2 == 0 ? -1 : 1;
 						vertDir = i > 1 ? -1 : 1;
-						Vector3 newSubCenter = newCenter;
-                        switch (plane)
-                        {
-							case QuadPlane.XZ:
-								newCenter.x += horizDir * half;
-								newCenter.z += vertDir * half;
-								break;
-							case QuadPlane.ZY:
-								newCenter.z += horizDir * half;
-								newCenter.y += vertDir * half;
-								break;
-							case QuadPlane.XY:
-							default:
-								newCenter.x += horizDir * half;
-								newCenter.y += vertDir * half;
-								break;
-						}
-                        children[i] = new BoundsQuadtreeNode<T>(oldRoot.BaseLength, minSize, looseness,
-							newSubCenter, plane);
+						Vector3 newSubCenter = ApplyOffset(newCenter, horizDir * half, vertDir * half, 
+							plane);
+                        children[i] = new BoundsQuadtreeNode<T>(oldRoot.BaseLength, newLength, minSize, 
+							looseness, newSubCenter, plane);
 					}
 				}
 
@@ -393,7 +423,7 @@ namespace SpacePartition
 		/// <summary>
 		/// Shrink the octree if possible, else leave it the same.
 		/// </summary>
-		void Shrink()
+		private void Shrink()
 		{
 			rootNode = rootNode.ShrinkIfPossible(initialSize);
 		}

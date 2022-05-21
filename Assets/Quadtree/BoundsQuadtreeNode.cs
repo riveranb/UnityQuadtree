@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace SpacePartition
 {
-	// A node in a BoundsQuadtree, currently developed specifically for XY quadtree
+	// A node in a BoundsQuadtree
 	// Copyright 2014 Nition, BSD licence (see LICENCE file). www.momentstudio.co.nz
 	public class BoundsQuadtreeNode<T>
 	{
@@ -22,6 +22,8 @@ namespace SpacePartition
 
 		// Actual length of sides, taking the looseness value into account
 		private float adjLength;
+
+		private float depthSize;
 
 		// Bounding box that represents this node
 		private Bounds bounds = default(Bounds);
@@ -61,11 +63,11 @@ namespace SpacePartition
 		/// <param name="minSizeVal">Minimum size of nodes in this octree.</param>
 		/// <param name="loosenessVal">Multiplier for baseLengthVal to get the actual size.</param>
 		/// <param name="centerVal">Centre position of this node.</param>
-		public BoundsQuadtreeNode(float baseLengthVal, float minSizeVal, float loosenessVal,
+		public BoundsQuadtreeNode(float baseLengthVal, float depth, float minSizeVal, float loosenessVal,
 			Vector3 centerVal, QuadPlane plane)
 		{
 			mode = plane;
-			SetValues(baseLengthVal, minSizeVal, loosenessVal, centerVal);
+			SetValues(baseLengthVal, depth, minSizeVal, loosenessVal, centerVal);
 		}
 
 		/// <summary>
@@ -127,8 +129,8 @@ namespace SpacePartition
 		}
 
 		/// <summary>
-		/// Removes the specified object at the given position. Makes the assumption that the object only 
-		/// exists once in the tree.
+		/// Removes the specified object at the given position. Makes the assumption that the object 
+		/// only exists once in the tree.
 		/// </summary>
 		/// <param name="obj">Object to remove.</param>
 		/// <param name="objBounds">3D bounding box around the object.</param>
@@ -219,8 +221,8 @@ namespace SpacePartition
 		}
 
 		/// <summary>
-		/// Returns an array of objects that intersect with the specified bounds, if any. Otherwise returns 
-		/// an empty array. See also: IsColliding.
+		/// Returns an array of objects that intersect with the specified bounds, if any. Otherwise 
+		/// returns an empty array. See also: IsColliding.
 		/// </summary>
 		/// <param name="checkBounds">Bounds to check. Passing by ref as it improves performance with 
 		/// structs.
@@ -332,7 +334,8 @@ namespace SpacePartition
 		{
 			if (childSubrees.Length != 4)
 			{
-				Debug.LogError("Child quadtree array must be length 4. Was length: " + childSubrees.Length);
+				Debug.LogError("Child quadtree array must be length 4. Was length: " + 
+					childSubrees.Length);
 				return;
 			}
 
@@ -454,7 +457,8 @@ namespace SpacePartition
 						}
 						if (bestFit >= 0 && bestFit != i)
 						{
-							// Can't reduce - objects in root are in a different octant to objects in child
+							// Can't reduce - objects in root are in a different octant to objects
+							// in child
 							return this;
 						}
 						childHadContent = true;
@@ -468,7 +472,7 @@ namespace SpacePartition
 			{
 				// We don't have any children, so just shrink this node to the new size
 				// We already know that everything will still fit in it
-				SetValues(BaseLength / 2, minSize, looseness, childBounds[bestFit].center);
+				SetValues(BaseLength / 2, depthSize, minSize, looseness, childBounds[bestFit].center);
 				return this;
 			}
 
@@ -491,13 +495,16 @@ namespace SpacePartition
 		{
 			switch (mode)
             {
-				case QuadPlane.XZ:
-					return (objBoundsCenter.x <= Center.x ? 0 : 1) + (objBoundsCenter.z >= Center.z ? 0 : 2);
-				case QuadPlane.ZY:
-					return (objBoundsCenter.z <= Center.z ? 0 : 1) + (objBoundsCenter.y >= Center.y ? 0 : 2);
-				case QuadPlane.XY:
-				default:
-					return (objBoundsCenter.x <= Center.x ? 0 : 1) + (objBoundsCenter.y >= Center.y ? 0 : 2);
+			case QuadPlane.XZ:
+				return (objBoundsCenter.x <= Center.x ? 0 : 1) + 
+					(objBoundsCenter.z >= Center.z ? 0 : 2);
+			case QuadPlane.ZY:
+				return (objBoundsCenter.z <= Center.z ? 0 : 1) + 
+					(objBoundsCenter.y >= Center.y ? 0 : 2);
+			case QuadPlane.XY:
+			default:
+				return (objBoundsCenter.x <= Center.x ? 0 : 1) + 
+					(objBoundsCenter.y >= Center.y ? 0 : 2);
 			}
 		}
 
@@ -553,26 +560,36 @@ namespace SpacePartition
 		/// <param name="minSizeVal">Minimum size of nodes in this octree.</param>
 		/// <param name="loosenessVal">Multiplier for baseLengthVal to get the actual size.</param>
 		/// <param name="centerVal">Centre position of this node.</param>
-		void SetValues(float baseLengthVal, float minSizeVal, float loosenessVal, Vector3 centerVal)
+		private void SetValues(float baseLengthVal, float depth, float minSizeVal, float loosenessVal, 
+			Vector3 centerVal)
 		{
 			BaseLength = baseLengthVal;
 			minSize = minSizeVal;
 			looseness = loosenessVal;
 			Center = centerVal;
 			adjLength = looseness * baseLengthVal;
+			depthSize = looseness * depth;
 
 			// Create the bounding box.
-			Vector3 size = new Vector3(adjLength, adjLength, adjLength);
+			Vector3 size = new Vector3(depthSize, depthSize, depthSize);
+			size = BoundsQuadtree<T>.Assign(size, adjLength, adjLength, mode);
 			bounds = new Bounds(Center, size);
 
 			float quarter = BaseLength / 4f;
 			float childActualLength = (BaseLength / 2) * looseness;
-			Vector3 childActualSize = new Vector3(childActualLength, childActualLength, BaseLength);
+			Vector3 childActualSize = BoundsQuadtree<T>.Assign(size, 
+				childActualLength, 
+				childActualLength,
+				mode);
 			childBounds = new Bounds[4];
-			childBounds[0] = new Bounds(Center + new Vector3(-quarter, quarter, 0), childActualSize);
-			childBounds[1] = new Bounds(Center + new Vector3(quarter, quarter, 0), childActualSize);
-			childBounds[2] = new Bounds(Center + new Vector3(-quarter, -quarter, 0), childActualSize);
-			childBounds[3] = new Bounds(Center + new Vector3(quarter, -quarter, 0), childActualSize);
+			Vector3 childCenter = BoundsQuadtree<T>.ApplyOffset(Center, -quarter, quarter, mode);
+			childBounds[0] = new Bounds(childCenter, childActualSize);
+			childCenter = BoundsQuadtree<T>.ApplyOffset(Center, quarter, quarter, mode);
+			childBounds[1] = new Bounds(childCenter, childActualSize);
+			childCenter = BoundsQuadtree<T>.ApplyOffset(Center, -quarter, -quarter, mode);
+			childBounds[2] = new Bounds(childCenter, childActualSize);
+			childCenter = BoundsQuadtree<T>.ApplyOffset(Center, quarter, -quarter, mode);
+			childBounds[3] = new Bounds(childCenter, childActualSize);
 		}
 
 		/// <summary>
@@ -580,7 +597,7 @@ namespace SpacePartition
 		/// </summary>
 		/// <param name="obj">Object to add.</param>
 		/// <param name="objBounds">3D bounding box around the object.</param>
-		void SubAdd(T obj, Bounds objBounds)
+		private void SubAdd(T obj, Bounds objBounds)
 		{
 			// We know it fits at this level if we've got this far
 
@@ -608,7 +625,8 @@ namespace SpacePartition
 						return;
 					}
 
-					// Now that we have the new children, see if this node's existing objects would fit there
+					// Now that we have the new children, see if this node's existing objects would
+					// fit there
 					for (int i = objects.Count - 1; i >= 0; i--)
 					{
 						QuadrantObject existingObj = objects[i];
@@ -618,7 +636,8 @@ namespace SpacePartition
 						// Does it fit?
 						if (Encapsulates(children[bestFitChild].bounds, existingObj.Bounds))
 						{
-							children[bestFitChild].SubAdd(existingObj.Obj, existingObj.Bounds); // Go a level deeper
+							// Go a level deeper
+							children[bestFitChild].SubAdd(existingObj.Obj, existingObj.Bounds);
 							objects.Remove(existingObj); // Remove from here
 						}
 					}
@@ -645,7 +664,7 @@ namespace SpacePartition
 		/// <param name="obj">Object to remove.</param>
 		/// <param name="objBounds">3D bounding box around the object.</param>
 		/// <returns>True if the object was removed successfully.</returns>
-		bool SubRemove(T obj, Bounds objBounds)
+		private bool SubRemove(T obj, Bounds objBounds)
 		{
 			bool removed = false;
 
@@ -679,27 +698,32 @@ namespace SpacePartition
 		/// <summary>
 		/// Splits the octree into eight children.
 		/// </summary>
-		void Split()
+		private void Split()
 		{
 			float quarter = BaseLength / 4f;
 			float newLength = BaseLength / 2;
 			children = new BoundsQuadtreeNode<T>[4];
-			children[0] = new BoundsQuadtreeNode<T>(newLength, minSize, looseness,
-				Center + new Vector3(-quarter, quarter, 0), mode);
-			children[1] = new BoundsQuadtreeNode<T>(newLength, minSize, looseness,
-				Center + new Vector3(quarter, quarter, 0), mode);
-			children[2] = new BoundsQuadtreeNode<T>(newLength, minSize, looseness,
-				Center + new Vector3(-quarter, -quarter, 0), mode);
-			children[3] = new BoundsQuadtreeNode<T>(newLength, minSize, looseness,
-				Center + new Vector3(quarter, -quarter, 0), mode);
+			Vector3 childCenter = BoundsQuadtree<T>.ApplyOffset(Center, -quarter, quarter, mode);
+			children[0] = new BoundsQuadtreeNode<T>(newLength, depthSize, minSize, looseness,
+				childCenter, mode);
+			childCenter = BoundsQuadtree<T>.ApplyOffset(Center, quarter, quarter, mode);
+			children[1] = new BoundsQuadtreeNode<T>(newLength, depthSize, minSize, looseness,
+				childCenter, mode);
+			childCenter = BoundsQuadtree<T>.ApplyOffset(Center, -quarter, -quarter, mode);
+			children[2] = new BoundsQuadtreeNode<T>(newLength, depthSize, minSize, looseness,
+				childCenter, mode);
+			childCenter = BoundsQuadtree<T>.ApplyOffset(Center, quarter, -quarter, mode);
+			children[3] = new BoundsQuadtreeNode<T>(newLength, depthSize, minSize, looseness,
+				childCenter, mode);
 		}
 
 		/// <summary>
 		/// Merge all children into this node - the opposite of Split.
-		/// Note: We only have to check one level down since a merge will never happen if the children already have children,
-		/// since THAT won't happen unless there are already too many objects to merge.
+		/// Note: We only have to check one level down since a merge will never happen if the children 
+		/// already have children, since THAT won't happen unless there are already too many objects 
+		/// to merge.
 		/// </summary>
-		void Merge()
+		private void Merge()
 		{
 			// Note: We know children != null or we wouldn't be merging
 			for (int i = 0; i < 4; i++)
@@ -717,24 +741,13 @@ namespace SpacePartition
 		}
 
 		/// <summary>
-		/// Checks if outerBounds encapsulates innerBounds.
-		/// </summary>
-		/// <param name="outerBounds">Outer bounds.</param>
-		/// <param name="innerBounds">Inner bounds.</param>
-		/// <returns>True if innerBounds is fully encapsulated by outerBounds.</returns>
-		static bool Encapsulates(Bounds outerBounds, Bounds innerBounds)
-		{
-			return outerBounds.Contains(innerBounds.min) && outerBounds.Contains(innerBounds.max);
-		}
-
-		/// <summary>
-		/// Checks if there are few enough objects in this node and its children that the children should 
-		/// all be merged into this.
+		/// Checks if there are few enough objects in this node and its children that the children
+		/// should all be merged into this.
 		/// </summary>
 		/// <returns>True there are less or the same abount of objects in this and its children than 
 		/// numObjectsAllowed.
 		/// </returns>
-		bool ShouldMerge()
+		private bool ShouldMerge()
 		{
 			int totalObjects = objects.Count;
 			if (children != null)
@@ -743,8 +756,8 @@ namespace SpacePartition
 				{
 					if (children[c].children != null)
 					{
-						// If any of the *children* have children, there are definitely too many to merge,
-						// or the child woudl have been merged already
+						// If any of the *children* have children, there are definitely too many to
+						// merge, or the child woudl have been merged already
 						return false;
 					}
 					totalObjects += children[c].objects.Count;
@@ -752,6 +765,17 @@ namespace SpacePartition
 
 			}
 			return totalObjects <= _NUM_OBJECTS_ALLOWED;
+		}
+
+		/// <summary>
+		/// Checks if outerBounds encapsulates innerBounds.
+		/// </summary>
+		/// <param name="outerBounds">Outer bounds.</param>
+		/// <param name="innerBounds">Inner bounds.</param>
+		/// <returns>True if innerBounds is fully encapsulated by outerBounds.</returns>
+		private static bool Encapsulates(Bounds outerBounds, Bounds innerBounds)
+		{
+			return outerBounds.Contains(innerBounds.min) && outerBounds.Contains(innerBounds.max);
 		}
 	}
 }
